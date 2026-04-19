@@ -1,0 +1,138 @@
+# Synthetic / anonymized incidents for root-cause + evidence evals.
+# Grow toward 50–200; each incident is a self-contained mini log corpus (no live DB required).
+version: 1
+description: >
+  Gold labels are slugs from the closed vocabulary used in LLM prompts.
+  evidence_chunk_ids must match chunks where is_evidence is true.
+
+incidents:
+  - id: inc-001
+    human_rubric_sample: true
+    description: "Since the 14:00 deploy, checkout fails with 503 and 'payment-db' errors in the API logs."
+    gold_root_cause: database_connection_failure
+    gold_evidence_chunk_ids: [c1, c2]
+    chunks:
+      - { id: c1, text: "ERROR payment-db connection refused host=10.0.1.5 port=5432 after rollout v2.4", is_evidence: true }
+      - { id: c2, text: "WARN migration 042 applied to payment-db schema at 13:58 UTC", is_evidence: true }
+      - { id: d1, text: "INFO /health returns 200 on checkout-api", is_evidence: false }
+
+  - id: inc-002
+    human_rubric_sample: true
+    description: "Mobile clients timeout; gateway shows slow calls to vendor fraud API."
+    gold_root_cause: dependency_timeout
+    gold_evidence_chunk_ids: [c1, c2]
+    chunks:
+      - { id: c1, text: "ERROR fraud-vendor request exceeded 30s deadline trace=abc123", is_evidence: true }
+      - { id: c2, text: "WARN circuit breaker fraud-vendor half-open", is_evidence: true }
+      - { id: d1, text: "INFO CDN cache hit ratio 94%", is_evidence: false }
+
+  - id: inc-003
+    description: "New env var for feature X rolled out; auth service rejects valid tokens."
+    gold_root_cause: deployment_config_error
+    gold_evidence_chunk_ids: [c1]
+    chunks:
+      - { id: c1, text: "ERROR JWT issuer mismatch expected=https://auth.prod got=https://auth.staging", is_evidence: true }
+      - { id: d1, text: "INFO auth pod restarted successfully", is_evidence: false }
+      - { id: d2, text: "DEBUG redis ping ok", is_evidence: false }
+
+  - id: inc-004
+    description: "Workers killed by OOM; heap grows until pod restart."
+    gold_root_cause: memory_leak_oom
+    gold_evidence_chunk_ids: [c1, c2]
+    chunks:
+      - { id: c1, text: "FATAL OutOfMemoryError Java heap space worker-7", is_evidence: true }
+      - { id: c2, text: "WARN heap usage 98% before crash", is_evidence: true }
+      - { id: d1, text: "INFO scheduled job completed", is_evidence: false }
+
+  - id: inc-005
+    description: "API returns 429 to many users during flash sale."
+    gold_root_cause: rate_limit_exceeded
+    gold_evidence_chunk_ids: [c1]
+    chunks:
+      - { id: c1, text: "WARN rate_limiter blocking client_id=anonymous count=5000/min", is_evidence: true }
+      - { id: d1, text: "INFO autoscaling added 2 replicas", is_evidence: false }
+
+  - id: inc-006
+    description: "TLS handshake failures to our public API starting midnight."
+    gold_root_cause: certificate_expired
+    gold_evidence_chunk_ids: [c1]
+    chunks:
+      - { id: c1, text: "ERROR x509 certificate has expired notAfter=2025-05-01", is_evidence: true }
+      - { id: d1, text: "INFO load balancer health ok", is_evidence: false }
+
+  - id: inc-007
+    description: "Service cannot resolve internal dependency hostname after DNS change."
+    gold_root_cause: dns_resolution_failure
+    gold_evidence_chunk_ids: [c1, c2]
+    chunks:
+      - { id: c1, text: "ERROR getaddrinfo ENOTFOUND orders.internal.svc.cluster.local", is_evidence: true }
+      - { id: c2, text: "INFO CoreDNS updated zone file 09:00", is_evidence: true }
+      - { id: d1, text: "DEBUG metrics scrape success", is_evidence: false }
+
+  - id: inc-008
+    description: "Order processing delayed; queue depth growing."
+    gold_root_cause: queue_backlog
+    gold_evidence_chunk_ids: [c1]
+    chunks:
+      - { id: c1, text: "WARN orders-queue depth=50000 consumers=2 lag=20m", is_evidence: true }
+      - { id: d1, text: "INFO disk free 40%", is_evidence: false }
+
+  - id: inc-009
+    description: "New flag enabled kills checkout for 10% canary."
+    gold_root_cause: bad_feature_flag
+    gold_evidence_chunk_ids: [c1, c2]
+    chunks:
+      - { id: c1, text: "ERROR feature checkout_v2 enabled canary=10% fatal NPE CartService", is_evidence: true }
+      - { id: c2, text: "INFO flag checkout_v2 rolled back 15:02", is_evidence: true }
+      - { id: d1, text: "INFO build 882 success", is_evidence: false }
+
+  - id: inc-010
+    description: "Our service errors when calling payments partner; their status page shows outage."
+    gold_root_cause: upstream_service_down
+    gold_evidence_chunk_ids: [c1]
+    chunks:
+      - { id: c1, text: "ERROR upstream payments.partner 503 body=maintenance mode", is_evidence: true }
+      - { id: d1, text: "INFO local cache warmed", is_evidence: false }
+
+  - id: inc-011
+    description: "Database writes fail with 'no space left on device'."
+    gold_root_cause: disk_full
+    gold_evidence_chunk_ids: [c1]
+    chunks:
+      - { id: c1, text: "ERROR postgres FATAL could not write block No space left on device", is_evidence: true }
+      - { id: d1, text: "INFO backup job skipped", is_evidence: false }
+
+  - id: inc-012
+    description: "OAuth callback fails; client id in logs does not match production app."
+    gold_root_cause: authentication_misconfig
+    gold_evidence_chunk_ids: [c1, c2]
+    chunks:
+      - { id: c1, text: "ERROR OAuth invalid_client client_id=dev-app-id", is_evidence: true }
+      - { id: c2, text: "WARN redirect_uri registered only for staging", is_evidence: true }
+      - { id: d1, text: "INFO session store healthy", is_evidence: false }
+
+  - id: inc-013
+    description: "Latency spikes; connection pool exhausted under checkout load."
+    gold_root_cause: database_connection_failure
+    gold_evidence_chunk_ids: [c1]
+    chunks:
+      - { id: c1, text: "ERROR HikariPool pool exhausted timeout waiting for connection 60000ms", is_evidence: true }
+      - { id: d1, text: "INFO CPU 30%", is_evidence: false }
+
+  - id: inc-014
+    description: "Cache stampede after TTL aligned; DB overloaded."
+    gold_root_cause: queue_backlog
+    gold_evidence_chunk_ids: [c1, c2]
+    chunks:
+      - { id: c1, text: "WARN cache miss storm key=product:* db_connections=500", is_evidence: true }
+      - { id: c2, text: "INFO TTL alignment job ran 00:00", is_evidence: true }
+      - { id: d1, text: "DEBUG single flight disabled", is_evidence: false }
+
+  - id: inc-015
+    description: "GRPC to inventory service fails with UNAVAILABLE after their deploy."
+    gold_root_cause: upstream_service_down
+    gold_evidence_chunk_ids: [c1, c2]
+    chunks:
+      - { id: c1, text: "ERROR grpc inventory.Inventory/Get UNAVAILABLE connection reset", is_evidence: true }
+      - { id: c2, text: "INFO inventory deploy completed version 3.2.0 broken", is_evidence: true }
+      - { id: d1, text: "INFO frontend bundle served", is_evidence: false }

@@ -1,0 +1,675 @@
+{
+  "eval_name": "rag_root_cause",
+  "generated_at": "2026-04-04T23:33:29.727140+00:00",
+  "methodology_doc": "evals/rag_root_cause/METHODOLOGY.md",
+  "dataset": "evals/rag_root_cause/dataset.yaml",
+  "n_incidents": 15,
+  "k_retrieval": 5,
+  "models": {
+    "judge": "gpt-4o-mini",
+    "embedding": "text-embedding-3-small",
+    "embedding_dim": 1536
+  },
+  "aggregate_metrics": {
+    "llm_no_retrieval": {
+      "root_cause_exact": 0.9333333333333333,
+      "root_cause_top3": 1.0,
+      "recall_at_5": null
+    },
+    "naive_fulltext": {
+      "root_cause_exact": 0.8,
+      "root_cause_top3": 1.0,
+      "recall_at_5": 1.0
+    },
+    "rag_embedding": {
+      "root_cause_exact": 0.8,
+      "root_cause_top3": 1.0,
+      "recall_at_5": 1.0
+    }
+  },
+  "deltas_percentage_points": {
+    "naive_vs_no_retrieval_root_cause_exact_pp": -13.33,
+    "rag_vs_no_retrieval_root_cause_exact_pp": -13.33,
+    "rag_vs_no_retrieval_root_cause_top3_pp": 0.0,
+    "rag_vs_naive_recall_at_5_mean_pp": 0.0
+  },
+  "human_rubric": {
+    "note": "Template in METHODOLOGY.md; incidents flagged in dataset with human_rubric_sample: true",
+    "flagged_incident_ids": [
+      "inc-001",
+      "inc-002"
+    ]
+  },
+  "per_incident": [
+    {
+      "incident_id": "inc-001",
+      "gold_root_cause": "database_connection_failure",
+      "recall_at_5": {
+        "naive_fulltext": 1.0,
+        "rag_embedding": 1.0
+      },
+      "root_cause_exact": {
+        "llm_no_retrieval": true,
+        "naive_fulltext": true,
+        "rag_embedding": true
+      },
+      "root_cause_top3": {
+        "llm_no_retrieval": true,
+        "naive_fulltext": true,
+        "rag_embedding": true
+      },
+      "human_rubric_sample": true,
+      "predictions": {
+        "llm_no_retrieval": {
+          "root_cause": "database_connection_failure",
+          "alternatives": [
+            "upstream_service_down",
+            "dependency_timeout"
+          ]
+        },
+        "naive_fulltext": {
+          "root_cause": "database_connection_failure",
+          "alternatives": [
+            "deployment_config_error",
+            "upstream_service_down"
+          ]
+        },
+        "rag_embedding": {
+          "root_cause": "database_connection_failure",
+          "alternatives": [
+            "upstream_service_down",
+            "deployment_config_error"
+          ]
+        }
+      }
+    },
+    {
+      "incident_id": "inc-002",
+      "gold_root_cause": "dependency_timeout",
+      "recall_at_5": {
+        "naive_fulltext": 1.0,
+        "rag_embedding": 1.0
+      },
+      "root_cause_exact": {
+        "llm_no_retrieval": true,
+        "naive_fulltext": true,
+        "rag_embedding": true
+      },
+      "root_cause_top3": {
+        "llm_no_retrieval": true,
+        "naive_fulltext": true,
+        "rag_embedding": true
+      },
+      "human_rubric_sample": true,
+      "predictions": {
+        "llm_no_retrieval": {
+          "root_cause": "dependency_timeout",
+          "alternatives": [
+            "rate_limit_exceeded",
+            "upstream_service_down"
+          ]
+        },
+        "naive_fulltext": {
+          "root_cause": "dependency_timeout",
+          "alternatives": [
+            "queue_backlog",
+            "rate_limit_exceeded"
+          ]
+        },
+        "rag_embedding": {
+          "root_cause": "dependency_timeout",
+          "alternatives": [
+            "queue_backlog",
+            "rate_limit_exceeded"
+          ]
+        }
+      }
+    },
+    {
+      "incident_id": "inc-003",
+      "gold_root_cause": "deployment_config_error",
+      "recall_at_5": {
+        "naive_fulltext": 1.0,
+        "rag_embedding": 1.0
+      },
+      "root_cause_exact": {
+        "llm_no_retrieval": true,
+        "naive_fulltext": false,
+        "rag_embedding": false
+      },
+      "root_cause_top3": {
+        "llm_no_retrieval": true,
+        "naive_fulltext": true,
+        "rag_embedding": true
+      },
+      "human_rubric_sample": false,
+      "predictions": {
+        "llm_no_retrieval": {
+          "root_cause": "deployment_config_error",
+          "alternatives": [
+            "authentication_misconfig",
+            "bad_feature_flag"
+          ]
+        },
+        "naive_fulltext": {
+          "root_cause": "authentication_misconfig",
+          "alternatives": [
+            "deployment_config_error",
+            "bad_feature_flag"
+          ]
+        },
+        "rag_embedding": {
+          "root_cause": "authentication_misconfig",
+          "alternatives": [
+            "deployment_config_error",
+            "bad_feature_flag"
+          ]
+        }
+      }
+    },
+    {
+      "incident_id": "inc-004",
+      "gold_root_cause": "memory_leak_oom",
+      "recall_at_5": {
+        "naive_fulltext": 1.0,
+        "rag_embedding": 1.0
+      },
+      "root_cause_exact": {
+        "llm_no_retrieval": true,
+        "naive_fulltext": true,
+        "rag_embedding": true
+      },
+      "root_cause_top3": {
+        "llm_no_retrieval": true,
+        "naive_fulltext": true,
+        "rag_embedding": true
+      },
+      "human_rubric_sample": false,
+      "predictions": {
+        "llm_no_retrieval": {
+          "root_cause": "memory_leak_oom",
+          "alternatives": [
+            "disk_full",
+            "deployment_config_error"
+          ]
+        },
+        "naive_fulltext": {
+          "root_cause": "memory_leak_oom",
+          "alternatives": [
+            "disk_full",
+            "deployment_config_error"
+          ]
+        },
+        "rag_embedding": {
+          "root_cause": "memory_leak_oom",
+          "alternatives": [
+            "disk_full",
+            "deployment_config_error"
+          ]
+        }
+      }
+    },
+    {
+      "incident_id": "inc-005",
+      "gold_root_cause": "rate_limit_exceeded",
+      "recall_at_5": {
+        "naive_fulltext": 1.0,
+        "rag_embedding": 1.0
+      },
+      "root_cause_exact": {
+        "llm_no_retrieval": true,
+        "naive_fulltext": true,
+        "rag_embedding": true
+      },
+      "root_cause_top3": {
+        "llm_no_retrieval": true,
+        "naive_fulltext": true,
+        "rag_embedding": true
+      },
+      "human_rubric_sample": false,
+      "predictions": {
+        "llm_no_retrieval": {
+          "root_cause": "rate_limit_exceeded",
+          "alternatives": [
+            "queue_backlog",
+            "dependency_timeout"
+          ]
+        },
+        "naive_fulltext": {
+          "root_cause": "rate_limit_exceeded",
+          "alternatives": [
+            "queue_backlog",
+            "dependency_timeout"
+          ]
+        },
+        "rag_embedding": {
+          "root_cause": "rate_limit_exceeded",
+          "alternatives": [
+            "queue_backlog",
+            "dependency_timeout"
+          ]
+        }
+      }
+    },
+    {
+      "incident_id": "inc-006",
+      "gold_root_cause": "certificate_expired",
+      "recall_at_5": {
+        "naive_fulltext": 1.0,
+        "rag_embedding": 1.0
+      },
+      "root_cause_exact": {
+        "llm_no_retrieval": true,
+        "naive_fulltext": true,
+        "rag_embedding": true
+      },
+      "root_cause_top3": {
+        "llm_no_retrieval": true,
+        "naive_fulltext": true,
+        "rag_embedding": true
+      },
+      "human_rubric_sample": false,
+      "predictions": {
+        "llm_no_retrieval": {
+          "root_cause": "certificate_expired",
+          "alternatives": [
+            "authentication_misconfig",
+            "dns_resolution_failure"
+          ]
+        },
+        "naive_fulltext": {
+          "root_cause": "certificate_expired",
+          "alternatives": [
+            "authentication_misconfig",
+            "dns_resolution_failure"
+          ]
+        },
+        "rag_embedding": {
+          "root_cause": "certificate_expired",
+          "alternatives": [
+            "authentication_misconfig",
+            "dns_resolution_failure"
+          ]
+        }
+      }
+    },
+    {
+      "incident_id": "inc-007",
+      "gold_root_cause": "dns_resolution_failure",
+      "recall_at_5": {
+        "naive_fulltext": 1.0,
+        "rag_embedding": 1.0
+      },
+      "root_cause_exact": {
+        "llm_no_retrieval": true,
+        "naive_fulltext": true,
+        "rag_embedding": true
+      },
+      "root_cause_top3": {
+        "llm_no_retrieval": true,
+        "naive_fulltext": true,
+        "rag_embedding": true
+      },
+      "human_rubric_sample": false,
+      "predictions": {
+        "llm_no_retrieval": {
+          "root_cause": "dns_resolution_failure",
+          "alternatives": [
+            "deployment_config_error",
+            "database_connection_failure"
+          ]
+        },
+        "naive_fulltext": {
+          "root_cause": "dns_resolution_failure",
+          "alternatives": [
+            "database_connection_failure",
+            "deployment_config_error"
+          ]
+        },
+        "rag_embedding": {
+          "root_cause": "dns_resolution_failure",
+          "alternatives": [
+            "deployment_config_error",
+            "database_connection_failure"
+          ]
+        }
+      }
+    },
+    {
+      "incident_id": "inc-008",
+      "gold_root_cause": "queue_backlog",
+      "recall_at_5": {
+        "naive_fulltext": 1.0,
+        "rag_embedding": 1.0
+      },
+      "root_cause_exact": {
+        "llm_no_retrieval": true,
+        "naive_fulltext": true,
+        "rag_embedding": true
+      },
+      "root_cause_top3": {
+        "llm_no_retrieval": true,
+        "naive_fulltext": true,
+        "rag_embedding": true
+      },
+      "human_rubric_sample": false,
+      "predictions": {
+        "llm_no_retrieval": {
+          "root_cause": "queue_backlog",
+          "alternatives": [
+            "database_connection_failure",
+            "dependency_timeout"
+          ]
+        },
+        "naive_fulltext": {
+          "root_cause": "queue_backlog",
+          "alternatives": [
+            "database_connection_failure",
+            "dependency_timeout"
+          ]
+        },
+        "rag_embedding": {
+          "root_cause": "queue_backlog",
+          "alternatives": [
+            "database_connection_failure",
+            "dependency_timeout"
+          ]
+        }
+      }
+    },
+    {
+      "incident_id": "inc-009",
+      "gold_root_cause": "bad_feature_flag",
+      "recall_at_5": {
+        "naive_fulltext": 1.0,
+        "rag_embedding": 1.0
+      },
+      "root_cause_exact": {
+        "llm_no_retrieval": true,
+        "naive_fulltext": true,
+        "rag_embedding": true
+      },
+      "root_cause_top3": {
+        "llm_no_retrieval": true,
+        "naive_fulltext": true,
+        "rag_embedding": true
+      },
+      "human_rubric_sample": false,
+      "predictions": {
+        "llm_no_retrieval": {
+          "root_cause": "bad_feature_flag",
+          "alternatives": [
+            "deployment_config_error",
+            "rate_limit_exceeded"
+          ]
+        },
+        "naive_fulltext": {
+          "root_cause": "bad_feature_flag",
+          "alternatives": [
+            "deployment_config_error",
+            "authentication_misconfig"
+          ]
+        },
+        "rag_embedding": {
+          "root_cause": "bad_feature_flag",
+          "alternatives": [
+            "deployment_config_error",
+            "queue_backlog"
+          ]
+        }
+      }
+    },
+    {
+      "incident_id": "inc-010",
+      "gold_root_cause": "upstream_service_down",
+      "recall_at_5": {
+        "naive_fulltext": 1.0,
+        "rag_embedding": 1.0
+      },
+      "root_cause_exact": {
+        "llm_no_retrieval": true,
+        "naive_fulltext": true,
+        "rag_embedding": true
+      },
+      "root_cause_top3": {
+        "llm_no_retrieval": true,
+        "naive_fulltext": true,
+        "rag_embedding": true
+      },
+      "human_rubric_sample": false,
+      "predictions": {
+        "llm_no_retrieval": {
+          "root_cause": "upstream_service_down",
+          "alternatives": [
+            "dependency_timeout",
+            "rate_limit_exceeded"
+          ]
+        },
+        "naive_fulltext": {
+          "root_cause": "upstream_service_down",
+          "alternatives": [
+            "dependency_timeout",
+            "rate_limit_exceeded"
+          ]
+        },
+        "rag_embedding": {
+          "root_cause": "upstream_service_down",
+          "alternatives": [
+            "dependency_timeout",
+            "rate_limit_exceeded"
+          ]
+        }
+      }
+    },
+    {
+      "incident_id": "inc-011",
+      "gold_root_cause": "disk_full",
+      "recall_at_5": {
+        "naive_fulltext": 1.0,
+        "rag_embedding": 1.0
+      },
+      "root_cause_exact": {
+        "llm_no_retrieval": true,
+        "naive_fulltext": true,
+        "rag_embedding": true
+      },
+      "root_cause_top3": {
+        "llm_no_retrieval": true,
+        "naive_fulltext": true,
+        "rag_embedding": true
+      },
+      "human_rubric_sample": false,
+      "predictions": {
+        "llm_no_retrieval": {
+          "root_cause": "disk_full",
+          "alternatives": [
+            "database_connection_failure",
+            "queue_backlog"
+          ]
+        },
+        "naive_fulltext": {
+          "root_cause": "disk_full",
+          "alternatives": [
+            "database_connection_failure",
+            "queue_backlog"
+          ]
+        },
+        "rag_embedding": {
+          "root_cause": "disk_full",
+          "alternatives": [
+            "database_connection_failure",
+            "dependency_timeout"
+          ]
+        }
+      }
+    },
+    {
+      "incident_id": "inc-012",
+      "gold_root_cause": "authentication_misconfig",
+      "recall_at_5": {
+        "naive_fulltext": 1.0,
+        "rag_embedding": 1.0
+      },
+      "root_cause_exact": {
+        "llm_no_retrieval": true,
+        "naive_fulltext": true,
+        "rag_embedding": true
+      },
+      "root_cause_top3": {
+        "llm_no_retrieval": true,
+        "naive_fulltext": true,
+        "rag_embedding": true
+      },
+      "human_rubric_sample": false,
+      "predictions": {
+        "llm_no_retrieval": {
+          "root_cause": "authentication_misconfig",
+          "alternatives": [
+            "deployment_config_error",
+            "dns_resolution_failure"
+          ]
+        },
+        "naive_fulltext": {
+          "root_cause": "authentication_misconfig",
+          "alternatives": [
+            "deployment_config_error",
+            "bad_feature_flag"
+          ]
+        },
+        "rag_embedding": {
+          "root_cause": "authentication_misconfig",
+          "alternatives": [
+            "deployment_config_error",
+            "bad_feature_flag"
+          ]
+        }
+      }
+    },
+    {
+      "incident_id": "inc-013",
+      "gold_root_cause": "database_connection_failure",
+      "recall_at_5": {
+        "naive_fulltext": 1.0,
+        "rag_embedding": 1.0
+      },
+      "root_cause_exact": {
+        "llm_no_retrieval": true,
+        "naive_fulltext": true,
+        "rag_embedding": true
+      },
+      "root_cause_top3": {
+        "llm_no_retrieval": true,
+        "naive_fulltext": true,
+        "rag_embedding": true
+      },
+      "human_rubric_sample": false,
+      "predictions": {
+        "llm_no_retrieval": {
+          "root_cause": "database_connection_failure",
+          "alternatives": [
+            "queue_backlog",
+            "dependency_timeout"
+          ]
+        },
+        "naive_fulltext": {
+          "root_cause": "database_connection_failure",
+          "alternatives": [
+            "queue_backlog",
+            "rate_limit_exceeded"
+          ]
+        },
+        "rag_embedding": {
+          "root_cause": "database_connection_failure",
+          "alternatives": [
+            "queue_backlog",
+            "rate_limit_exceeded"
+          ]
+        }
+      }
+    },
+    {
+      "incident_id": "inc-014",
+      "gold_root_cause": "queue_backlog",
+      "recall_at_5": {
+        "naive_fulltext": 1.0,
+        "rag_embedding": 1.0
+      },
+      "root_cause_exact": {
+        "llm_no_retrieval": false,
+        "naive_fulltext": false,
+        "rag_embedding": false
+      },
+      "root_cause_top3": {
+        "llm_no_retrieval": true,
+        "naive_fulltext": true,
+        "rag_embedding": true
+      },
+      "human_rubric_sample": false,
+      "predictions": {
+        "llm_no_retrieval": {
+          "root_cause": "database_connection_failure",
+          "alternatives": [
+            "queue_backlog",
+            "rate_limit_exceeded"
+          ]
+        },
+        "naive_fulltext": {
+          "root_cause": "database_connection_failure",
+          "alternatives": [
+            "queue_backlog",
+            "rate_limit_exceeded"
+          ]
+        },
+        "rag_embedding": {
+          "root_cause": "database_connection_failure",
+          "alternatives": [
+            "queue_backlog",
+            "rate_limit_exceeded"
+          ]
+        }
+      }
+    },
+    {
+      "incident_id": "inc-015",
+      "gold_root_cause": "upstream_service_down",
+      "recall_at_5": {
+        "naive_fulltext": 1.0,
+        "rag_embedding": 1.0
+      },
+      "root_cause_exact": {
+        "llm_no_retrieval": true,
+        "naive_fulltext": false,
+        "rag_embedding": false
+      },
+      "root_cause_top3": {
+        "llm_no_retrieval": true,
+        "naive_fulltext": true,
+        "rag_embedding": true
+      },
+      "human_rubric_sample": false,
+      "predictions": {
+        "llm_no_retrieval": {
+          "root_cause": "upstream_service_down",
+          "alternatives": [
+            "deployment_config_error",
+            "dependency_timeout"
+          ]
+        },
+        "naive_fulltext": {
+          "root_cause": "deployment_config_error",
+          "alternatives": [
+            "upstream_service_down",
+            "dns_resolution_failure"
+          ]
+        },
+        "rag_embedding": {
+          "root_cause": "deployment_config_error",
+          "alternatives": [
+            "upstream_service_down",
+            "dependency_timeout"
+          ]
+        }
+      }
+    }
+  ]
+}

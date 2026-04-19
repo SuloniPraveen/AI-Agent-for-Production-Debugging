@@ -1,12 +1,15 @@
 """This file contains the database service for the application."""
 
+import time
 from typing import (
     List,
     Optional,
 )
 
 from fastapi import HTTPException
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy import text
+from sqlalchemy.engine.url import URL
+from sqlalchemy.exc import OperationalError, SQLAlchemyError
 from sqlalchemy.pool import QueuePool
 from sqlmodel import (
     Session,
@@ -20,8 +23,19 @@ from app.core.config import (
     settings,
 )
 from app.core.logging import logger
+from app.models.log_batch import LogBatch  # noqa: F401
+from app.models.log_chunk import LogChunk  # noqa: F401
+from app.models.rag_chunk import RagChunk  # noqa: F401
 from app.models.session import Session as ChatSession
 from app.models.user import User
+
+
+def _tcp_host(host: str) -> str:
+    """Prefer 127.0.0.1 over 'localhost' for predictable TCP to Docker-published ports."""
+    h = (host or "").strip().lower()
+    if h == "localhost":
+        return "127.0.0.1"
+    return host
 
 
 class DatabaseService:
@@ -39,9 +53,22 @@ class DatabaseService:
             max_overflow = settings.POSTGRES_MAX_OVERFLOW
 
             # Create engine with appropriate pool configuration
-            connection_url = (
-                f"postgresql://{settings.POSTGRES_USER}:{settings.POSTGRES_PASSWORD}"
-                f"@{settings.POSTGRES_HOST}:{settings.POSTGRES_PORT}/{settings.POSTGRES_DB}"
+            tcp_host = _tcp_host(settings.POSTGRES_HOST)
+            # URL.create avoids broken host:port parsing when passwords contain @ : / etc.
+            connection_url = URL.create(
+                "postgresql+psycopg2",
+                username=settings.POSTGRES_USER,
+                password=settings.POSTGRES_PASSWORD or None,
+                host=tcp_host,
+                port=settings.POSTGRES_PORT,
+                database=settings.POSTGRES_DB,
+            )
+            logger.info(
+                "database_connect_target",
+                host=tcp_host,
+                port=settings.POSTGRES_PORT,
+                database=settings.POSTGRES_DB,
+                user=settings.POSTGRES_USER,
             )
 
             self.engine = create_engine(
@@ -54,8 +81,29 @@ class DatabaseService:
                 pool_recycle=1800,  # Recycle connections after 30 minutes
             )
 
-            # Create tables (only if they don't exist)
-            SQLModel.metadata.create_all(self.engine)
+            # Docker Desktop + uvicorn --reload can import the app before the host port is
+            # stable; retry a few seconds on connection refused.
+            last_refused: Optional[OperationalError] = None
+            for attempt in range(1, 41):
+                try:
+                    self._ensure_pgvector_extension()
+                    SQLModel.metadata.create_all(self.engine)
+                    break
+                except OperationalError as e:
+                    last_refused = e
+                    err_l = str(e).lower()
+                    if "refused" not in err_l and "could not connect" not in err_l:
+                        raise
+                    logger.warning(
+                        "database_connect_retry",
+                        attempt=attempt,
+                        max_attempts=40,
+                        error=str(e),
+                    )
+                    time.sleep(0.5)
+            else:
+                if last_refused is not None:
+                    raise last_refused
 
             logger.info(
                 "database_initialized",
@@ -66,6 +114,17 @@ class DatabaseService:
         except SQLAlchemyError as e:
             logger.error("database_initialization_error", error=str(e), environment=settings.ENVIRONMENT.value)
             # In production, don't raise - allow app to start even with DB issues
+            if settings.ENVIRONMENT != Environment.PRODUCTION:
+                raise
+
+    def _ensure_pgvector_extension(self) -> None:
+        """Enable pgvector so tables can use the vector type."""
+        try:
+            with self.engine.begin() as conn:
+                conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
+            logger.info("pgvector_extension_ready")
+        except Exception as e:
+            logger.error("pgvector_extension_failed", error=str(e))
             if settings.ENVIRONMENT != Environment.PRODUCTION:
                 raise
 

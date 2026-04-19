@@ -2,7 +2,7 @@
   "dashboard": {
     "id": null,
     "uid": "llm-latency",
-    "title": "LLM Inference Latency",
+    "title": "LLM Latency (chat)",
     "tags": ["inference", "latency"],
     "timezone": "browser",
     "schemaVersion": 30,
@@ -14,7 +14,7 @@
         "title": "LLM Inference Duration (p95)",
         "targets": [
           {
-            "expr": "histogram_quantile(0.95, rate(llm_inference_duration_seconds_bucket[1m]))",
+            "expr": "histogram_quantile(0.95, sum(rate(llm_latency_seconds_bucket[1m])) by (le, model))",
             "legendFormat": "{{model}} (chat)",
             "refId": "A"
           }
@@ -40,7 +40,7 @@
         "title": "LLM Inference Duration (Average)",
         "targets": [
           {
-            "expr": "rate(llm_inference_duration_seconds_sum[1m]) / rate(llm_inference_duration_seconds_count[1m])",
+            "expr": "rate(llm_latency_seconds_sum[1m]) / rate(llm_latency_seconds_count[1m])",
             "legendFormat": "{{model}} (avg)",
             "refId": "C"
           }
@@ -53,7 +53,7 @@
         "title": "LLM Inference Request Count",
         "targets": [
           {
-            "expr": "rate(llm_inference_duration_seconds_count[1m])",
+            "expr": "rate(llm_latency_seconds_count[1m])",
             "legendFormat": "{{model}}",
             "refId": "D"
           }

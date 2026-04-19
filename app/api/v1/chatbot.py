@@ -60,11 +60,16 @@ async def chat(
             message_count=len(chat_request.messages),
         )
 
-        result = await agent.get_response(chat_request.messages, session.id, user_id=session.user_id)
+        messages, citations = await agent.get_response(
+            chat_request.messages,
+            session.id,
+            user_id=session.user_id,
+            focus_log_batch_id=chat_request.focus_log_batch_id,
+        )
 
         logger.info("chat_request_processed", session_id=session.id)
 
-        return ChatResponse(messages=result)
+        return ChatResponse(messages=messages, citations=citations)
     except Exception as e:
         logger.error("chat_request_failed", session_id=session.id, error=str(e), exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
@@ -110,7 +115,10 @@ async def chat_stream(
                 full_response = ""
                 with llm_stream_duration_seconds.labels(model=agent.llm_service.get_llm().get_name()).time():
                     async for chunk in agent.get_stream_response(
-                        chat_request.messages, session.id, user_id=session.user_id
+                        chat_request.messages,
+                        session.id,
+                        user_id=session.user_id,
+                        focus_log_batch_id=chat_request.focus_log_batch_id,
                     ):
                         full_response += chunk
                         response = StreamResponse(content=chunk, done=False)
@@ -162,7 +170,7 @@ async def get_session_messages(
     """
     try:
         messages = await agent.get_chat_history(session.id)
-        return ChatResponse(messages=messages)
+        return ChatResponse(messages=messages, citations=[])
     except Exception as e:
         logger.error("get_messages_failed", session_id=session.id, error=str(e), exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))

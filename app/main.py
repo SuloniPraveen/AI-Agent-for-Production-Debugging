@@ -31,6 +31,8 @@ from app.core.middleware import (
     MetricsMiddleware,
 )
 from app.services.database import database_service
+from app.services.demo_identity import ensure_demo_identity
+from app.services.redis_client import close_redis
 
 # Load environment variables
 load_dotenv()
@@ -52,7 +54,13 @@ async def lifespan(app: FastAPI):
         version=settings.VERSION,
         api_prefix=settings.API_V1_STR,
     )
+    try:
+        await ensure_demo_identity(database_service)
+    except Exception as e:
+        # Do not block API startup (e.g. transient DB); demo key may 503 until retry
+        logger.exception("demo_identity_bootstrap_failed", error=str(e))
     yield
+    await close_redis()
     logger.info("application_shutdown")
 
 
@@ -121,6 +129,13 @@ app.add_middleware(
 
 # Include API router
 app.include_router(api_router, prefix=settings.API_V1_STR)
+
+
+@app.get("/live")
+@limiter.exempt
+async def liveness(request: Request) -> Dict[str, str]:
+    """Lightweight probe for orchestrators (no DB). Use GET /health for readiness."""
+    return {"status": "live"}
 
 
 @app.get("/")

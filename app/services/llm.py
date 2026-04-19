@@ -1,5 +1,7 @@
 """LLM service for managing LLM calls with retries and fallback mechanisms."""
 
+import logging
+
 from typing import (
     Any,
     Dict,
@@ -226,7 +228,9 @@ class LLMService:
         stop=stop_after_attempt(settings.MAX_LLM_CALL_RETRIES),
         wait=wait_exponential(multiplier=1, min=2, max=10),
         retry=retry_if_exception_type((RateLimitError, APITimeoutError, APIError)),
-        before_sleep=before_sleep_log(logger, "WARNING"),
+        # Integer level required: structlog BoundLogger.log() uses LEVEL_TO_NAME[level];
+        # passing "WARNING" raises KeyError('WARNING') inside tenacity before_sleep_log.
+        before_sleep=before_sleep_log(logger, logging.WARNING),
         reraise=True,
     )
     async def _call_llm_with_retry(self, messages: List[BaseMessage]) -> BaseMessage:

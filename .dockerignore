@@ -1,0 +1,26 @@
+# Host venv must never overwrite the Linux venv created in the Dockerfile (fixes "python: No such file").
+.venv/
+venv/
+env/
+
+.git/
+.gitignore
+*.md
+.pytest_cache/
+__pycache__/
+*.py[cod]
+.ruff_cache/
+.mypy_cache/
+.idea/
+.vscode/
+*.log
+logs/
+.env
+.env.development
+.env.staging
+.env.production
+.env.local
+.env.test
+
+# Large / local-only (demo log can stay in image via explicit COPY in Dockerfile.demo if needed)
+# demo_data/sample_service.log is huge; app image does not need it (demo service mounts it).

@@ -1,24 +1,35 @@
-version: '3.8'
-
 services:
   db:
     image: pgvector/pgvector:pg16
-    environment:
-      - POSTGRES_DB=${POSTGRES_DB}
-      - POSTGRES_USER=${POSTGRES_USER}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+    # Same file as `app` — avoids mismatch where db used host `.env` interpolation but app used `.env.development`.
+    env_file:
+      - .env.${APP_ENV:-development}
+    # Host port defaults to 5433 to avoid clashing with a local Postgres on 5432 (common on Mac).
     ports:
-      - "5432:5432"
+      - "${POSTGRES_PORT:-5433}:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
       interval: 10s
       timeout: 5s
       retries: 5
     restart: always
     networks:
       - monitoring
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - monitoring
+    restart: always
 
   # Single API service with dynamic environment
   app:
@@ -36,15 +47,59 @@ services:
     environment:
       - APP_ENV=${APP_ENV:-development}
       - JWT_SECRET_KEY=${JWT_SECRET_KEY:-supersecretkeythatshouldbechangedforproduction}
+      - REDIS_URL=redis://redis:6379/0
+      # Compose network: reach Postgres by service name (overrides host localhost from .env files).
+      - POSTGRES_HOST=db
+      - POSTGRES_PORT=5432
+      # Phase 4: Streamlit demo authenticates with this shared secret (no JWT for reviewers).
+      - DEMO_API_KEY=${DEMO_API_KEY:-demo-local-review-only}
+      # Mem0 retrieve+update before/after every chat can exceed demo timeouts; re-enable with true if needed.
+      - LONG_TERM_MEMORY_ENABLED=${LONG_TERM_MEMORY_ENABLED:-false}
+      - LONG_TERM_MEMORY_RETRIEVE_TIMEOUT_SECONDS=${LONG_TERM_MEMORY_RETRIEVE_TIMEOUT_SECONDS:-12}
+      - LANGGRAPH_RECURSION_LIMIT=${LANGGRAPH_RECURSION_LIMIT:-16}
+      - CHAT_HISTORY_TRIM_MAX_TOKENS=${CHAT_HISTORY_TRIM_MAX_TOKENS:-28000}
     depends_on:
       db:
         condition: service_healthy
+      redis:
+        condition: service_healthy
+    # /health returns 503 when DB is down (curl -f fails). /live only checks the process listens.
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
-      interval: 30s
+      test:
+        [
+          "CMD",
+          "/app/.venv/bin/python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/live', timeout=8)",
+        ]
+      interval: 15s
       timeout: 10s
-      retries: 3
-      start_period: 10s
+      retries: 5
+      start_period: 60s
+    restart: on-failure
+    networks:
+      - monitoring
+
+  # Phase 4: Streamlit demo (upload logs, scenarios, chat + citations). Open http://localhost:8501
+  demo:
+    build:
+      context: .
+      dockerfile: Dockerfile.demo
+    ports:
+      - "8501:8501"
+    environment:
+      - API_BASE_URL=http://app:8000
+      - API_V1_PREFIX=/api/v1
+      - DEMO_API_KEY=${DEMO_API_KEY:-demo-local-review-only}
+      - DEMO_DATA_DIR=/app/demo_data
+      # Read timeout for POST /chatbot/chat (agent + tools + OpenAI). Increase if needed.
+      - DEMO_CHAT_TIMEOUT=${DEMO_CHAT_TIMEOUT:-1800}
+    volumes:
+      - ./demo_data:/app/demo_data:ro
+      - ./demo:/app/demo:ro
+    depends_on:
+      app:
+        condition: service_healthy
     restart: on-failure
     networks:
       - monitoring
@@ -69,6 +124,7 @@ services:
       - "3000:3000"
     volumes:
       - grafana-storage:/var/lib/grafana
+      - ./grafana/datasources:/etc/grafana/provisioning/datasources
       - ./grafana/dashboards:/etc/grafana/provisioning/dashboards
       - ./grafana/dashboards/dashboards.yml:/etc/grafana/provisioning/dashboards/dashboards.yml
     environment:

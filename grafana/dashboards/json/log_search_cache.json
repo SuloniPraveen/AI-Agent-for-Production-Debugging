@@ -1,0 +1,119 @@
+{
+  "dashboard": {
+    "id": null,
+    "uid": "log-search-cache",
+    "title": "Log Search Cache & Retrieval Latency",
+    "tags": ["rag", "redis", "cache", "logs"],
+    "timezone": "browser",
+    "schemaVersion": 30,
+    "version": 1,
+    "refresh": "10s",
+    "panels": [
+      {
+        "type": "stat",
+        "title": "Cache hit ratio (5m)",
+        "targets": [
+          {
+            "expr": "sum(rate(cache_hits_total{cache=\"log_search\"}[5m])) / clamp_min(sum(rate(cache_hits_total{cache=\"log_search\"}[5m])) + sum(rate(cache_misses_total{cache=\"log_search\"}[5m])), 0.0001)",
+            "legendFormat": "hit ratio",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percentunit",
+            "decimals": 3
+          }
+        },
+        "datasource": "Prometheus",
+        "gridPos": { "x": 0, "y": 0, "w": 8, "h": 5 }
+      },
+      {
+        "type": "graph",
+        "title": "Cache hits vs misses / sec",
+        "targets": [
+          {
+            "expr": "sum(rate(cache_hits_total{cache=\"log_search\"}[1m]))",
+            "legendFormat": "hits",
+            "refId": "A"
+          },
+          {
+            "expr": "sum(rate(cache_misses_total{cache=\"log_search\"}[1m]))",
+            "legendFormat": "misses",
+            "refId": "B"
+          }
+        ],
+        "datasource": "Prometheus",
+        "gridPos": { "x": 8, "y": 0, "w": 16, "h": 9 }
+      },
+      {
+        "type": "graph",
+        "title": "Retrieval latency p95 — total_hit (cached) vs total_miss (cold)",
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.95, sum(rate(retrieval_latency_seconds_bucket{phase=\"total_hit\"}[5m])) by (le))",
+            "legendFormat": "p95 total_hit",
+            "refId": "A"
+          },
+          {
+            "expr": "histogram_quantile(0.95, sum(rate(retrieval_latency_seconds_bucket{phase=\"total_miss\"}[5m])) by (le))",
+            "legendFormat": "p95 total_miss",
+            "refId": "B"
+          }
+        ],
+        "datasource": "Prometheus",
+        "gridPos": { "x": 0, "y": 9, "w": 24, "h": 9 }
+      },
+      {
+        "type": "graph",
+        "title": "Retrieval latency p50 — total_hit vs total_miss",
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.50, sum(rate(retrieval_latency_seconds_bucket{phase=\"total_hit\"}[5m])) by (le))",
+            "legendFormat": "p50 total_hit",
+            "refId": "A"
+          },
+          {
+            "expr": "histogram_quantile(0.50, sum(rate(retrieval_latency_seconds_bucket{phase=\"total_miss\"}[5m])) by (le))",
+            "legendFormat": "p50 total_miss",
+            "refId": "B"
+          }
+        ],
+        "datasource": "Prometheus",
+        "gridPos": { "x": 0, "y": 18, "w": 24, "h": 9 }
+      },
+      {
+        "type": "graph",
+        "title": "Breakdown on miss — embed vs vector_search (p95)",
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.95, sum(rate(retrieval_latency_seconds_bucket{phase=\"embed\"}[5m])) by (le))",
+            "legendFormat": "p95 embed",
+            "refId": "A"
+          },
+          {
+            "expr": "histogram_quantile(0.95, sum(rate(retrieval_latency_seconds_bucket{phase=\"vector_search\"}[5m])) by (le))",
+            "legendFormat": "p95 vector_search",
+            "refId": "B"
+          }
+        ],
+        "datasource": "Prometheus",
+        "gridPos": { "x": 0, "y": 27, "w": 24, "h": 9 }
+      },
+      {
+        "type": "graph",
+        "title": "LLM latency p95 (chat)",
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.95, sum(rate(llm_latency_seconds_bucket[5m])) by (le, model))",
+            "legendFormat": "{{model}}",
+            "refId": "A"
+          }
+        ],
+        "datasource": "Prometheus",
+        "gridPos": { "x": 0, "y": 36, "w": 24, "h": 9 }
+      }
+    ]
+  },
+  "overwrite": true
+}

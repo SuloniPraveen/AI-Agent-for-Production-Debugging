@@ -1,0 +1,34 @@
+# Scripted incident scenarios for the Streamlit demo (suggested prompts + expected themes).
+# Log patterns matching these themes are embedded in sample_service.log (see scripts/generate_demo_logs.py).
+
+scenarios:
+  - id: payment_db
+    title: "Checkout 503s after deploy"
+    suggested_prompt: >
+      We deployed at 10:00 UTC and checkout is returning 503s. What should we investigate first,
+      and what evidence in the logs supports that?
+    expected_themes:
+      - "payment-db"
+      - "database"
+      - "connection refused"
+
+  - id: vendor_timeout
+    title: "Slow mobile checkout — upstream latency"
+    suggested_prompt: >
+      Mobile clients report timeouts during checkout. The gateway team suspects an external dependency.
+      What do the logs show about upstream latency?
+    expected_themes:
+      - "vendor"
+      - "fraud"
+      - "latency"
+      - "timeout"
+
+  - id: cache_miss_storm
+    title: "Redis / cache pressure"
+    suggested_prompt: >
+      We are seeing elevated error rates on checkout and signs of cache issues. Summarize relevant
+      log signals and suggested next checks.
+    expected_themes:
+      - "redis"
+      - "cache"
+      - "MISS"

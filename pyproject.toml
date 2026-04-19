@@ -38,10 +38,14 @@ dependencies = [
     "tenacity>=9.1.2",
     "mem0ai>=1.0.0",
     "uvloop>=0.22.1",
+    "pgvector>=0.4.2",
+    "redis[hiredis]>=5.0.0",
+    "pyyaml>=6.0.2",
 ]
 
 [project.optional-dependencies]
 dev = ["black", "isort", "flake8", "ruff", "djlint==1.36.4"]
+demo = ["streamlit>=1.40.0", "requests>=2.32.0"]
 
 [dependency-groups]
 test = ["httpx>=0.28.1", "pytest>=8.3.5"]

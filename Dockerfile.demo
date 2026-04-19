@@ -1,0 +1,19 @@
+FROM python:3.13-slim
+
+WORKDIR /app
+
+RUN python -m venv /app/.venv \
+    && /app/.venv/bin/pip install --no-cache-dir --upgrade pip \
+    && /app/.venv/bin/pip install --no-cache-dir "streamlit>=1.40.0" "requests>=2.32.0" "pyyaml>=6.0.2"
+
+COPY demo /app/demo
+COPY demo_data /app/demo_data
+
+ENV PATH="/app/.venv/bin:$PATH" \
+    API_BASE_URL=http://app:8000 \
+    API_V1_PREFIX=/api/v1 \
+    DEMO_DATA_DIR=/app/demo_data
+
+EXPOSE 8501
+
+CMD ["streamlit", "run", "/app/demo/streamlit_app.py", "--server.address", "0.0.0.0", "--server.port", "8501", "--server.headless", "true"]

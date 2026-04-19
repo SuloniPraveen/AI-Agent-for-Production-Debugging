@@ -4,13 +4,19 @@ This module provides endpoints for user registration, login, session management,
 and token verification.
 """
 
+import secrets
 import uuid
-from typing import List
+from typing import (
+    Annotated,
+    List,
+    Optional,
+)
 
 from fastapi import (
     APIRouter,
     Depends,
     Form,
+    Header,
     HTTPException,
     Request,
 )
@@ -40,17 +46,35 @@ from app.utils.auth import (
 )
 from app.utils.sanitization import (
     sanitize_email,
+    sanitize_plaintext_secret,
     sanitize_string,
     validate_password_strength,
 )
 
 router = APIRouter()
-security = HTTPBearer()
+optional_bearer = HTTPBearer(auto_error=False)
 db_service = DatabaseService()
 
 
+def _matches_demo_key(*candidates: Optional[str]) -> bool:
+    """Constant-time check against configured DEMO_API_KEY."""
+    expected = settings.DEMO_API_KEY
+    if not expected:
+        return False
+    for raw in candidates:
+        if raw is None:
+            continue
+        c = raw.strip()
+        if len(c) != len(expected):
+            continue
+        if secrets.compare_digest(c, expected):
+            return True
+    return False
+
+
 async def get_current_user(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(optional_bearer),
+    x_demo_api_key: Annotated[Optional[str], Header(alias="X-Demo-API-Key")] = None,
 ) -> User:
     """Get the current user ID from the token.
 
@@ -64,6 +88,24 @@ async def get_current_user(
         HTTPException: If the token is invalid or missing.
     """
     try:
+        bearer = credentials.credentials.strip() if credentials else None
+        if _matches_demo_key(x_demo_api_key, bearer):
+            user = await db_service.get_user_by_email(settings.DEMO_USER_EMAIL)
+            if user is None:
+                raise HTTPException(
+                    status_code=503,
+                    detail="Demo user not provisioned yet; retry after API startup",
+                )
+            bind_context(user_id=user.id)
+            return user
+
+        if credentials is None:
+            raise HTTPException(
+                status_code=401,
+                detail="Not authenticated",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+
         # Sanitize token
         token = sanitize_string(credentials.credentials)
 
@@ -101,7 +143,8 @@ async def get_current_user(
 
 
 async def get_current_session(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(optional_bearer),
+    x_demo_api_key: Annotated[Optional[str], Header(alias="X-Demo-API-Key")] = None,
 ) -> Session:
     """Get the current session ID from the token.
 
@@ -115,6 +158,24 @@ async def get_current_session(
         HTTPException: If the token is invalid or missing.
     """
     try:
+        bearer = credentials.credentials.strip() if credentials else None
+        if _matches_demo_key(x_demo_api_key, bearer):
+            chat_session = await db_service.get_session(settings.DEMO_SESSION_ID)
+            if chat_session is None:
+                raise HTTPException(
+                    status_code=503,
+                    detail="Demo session not provisioned yet; retry after API startup",
+                )
+            bind_context(user_id=chat_session.user_id)
+            return chat_session
+
+        if credentials is None:
+            raise HTTPException(
+                status_code=401,
+                detail="Not authenticated",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+
         # Sanitize token
         token = sanitize_string(credentials.credentials)
 
@@ -209,9 +270,8 @@ async def login(
         HTTPException: If credentials are invalid
     """
     try:
-        # Sanitize inputs
-        username = sanitize_string(username)
-        password = sanitize_string(password)
+        username = sanitize_email(username)
+        password = sanitize_plaintext_secret(password)
         grant_type = sanitize_string(grant_type)
 
         # Verify grant type

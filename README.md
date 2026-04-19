@@ -1,223 +1,188 @@
 # AI Agent for Production Debugging
 
-A production-ready AI agent that helps engineering teams investigate and respond to production incidents by analyzing service logs and runbook documentation using **LangGraph orchestration + Retrieval Augmented Generation (RAG)**.
+A **FastAPI + LangGraph** service that helps debug production-style incidents: you **upload logs**, ask questions in **chat**, and the agent retrieves **relevant log chunks** (vector search), then answers with **evidence (chunk citations)** and **actionable remediation**—not just raw citations.
+
+**Stack:** FastAPI · LangGraph · PostgreSQL + **pgvector** · OpenAI (chat + embeddings) · optional **Redis** (log-search cache) · optional **Mem0** (long-term memory, off by default for latency) · Prometheus / Grafana · optional Streamlit demo.
 
 ---
 
-## 🌟 Why this project exists
+## How it works (end-to-end)
 
-During incidents, engineers spend valuable time searching logs, dashboards, and runbooks to understand what went wrong.
+1. **Upload** a `.log` / `.txt` file via `POST /api/v1/logs/upload` (authenticated user, or demo API key).
+2. The file is **split into chunks**, each chunk gets an **embedding**, stored in **`log_chunks`** (linked to **`log_batches`** and your user).
+3. On **chat**, the agent calls the **`search_logs`** tool: your question is **embedded**, then **similarity search** runs over chunks—but only for **your scoped upload** (see below), returning the **top few** matches.
+4. The **LLM** reads those chunks and returns a structured answer: executive summary, evidence with **chunk_id**s, per-issue remediation, prioritized next steps.
 
-This system acts as an **AI copilot for incident response**, helping reduce time to diagnose and improve troubleshooting accuracy.
+**Scoped search:** Log vector search is limited to **your** data—typically the **latest completed upload** for your user, or a specific batch if the client sends **`focus_log_batch_id`** (the Streamlit demo pins the last uploaded batch for that session). This avoids mixing your incident with everyone else’s chunks in the database.
 
-The agent can:
-
-• Analyze service logs and error traces  
-• Retrieve relevant runbook documentation  
-• Suggest likely root causes  
-• Recommend next debugging steps  
-• Maintain conversation memory across sessions  
+**Redis cache:** Optional. It caches the **exact same** `search_logs` query + filters + batch scope (repeat searches). **Different questions** produce **different** cache keys and still run a fresh retrieval. If `REDIS_URL` is empty, caching is off.
 
 ---
 
-## 🏗️ Architecture Overview
+## URLs (local defaults)
 
-High level workflow:
+| URL | Purpose |
+|-----|---------|
+| http://localhost:8000/docs | **Swagger UI** — try REST APIs interactively |
+| http://localhost:8000/redoc | **ReDoc** — read-only API reference |
+| http://localhost:8000/api/v1/openapi.json | OpenAPI JSON (codegen / Postman) |
+| http://localhost:8501 | **Streamlit demo** — upload → chat + citations (`make demo-up` or `make demo-ui` + API) |
+| http://localhost:9090 | **Prometheus** — metrics & PromQL |
+| http://localhost:3000 | **Grafana** — dashboards (default login often `admin`; reset password if volume was created earlier) |
 
-User query or logs  
-➡️ LangGraph orchestration  
-➡️ RAG pipeline retrieves relevant logs and runbooks from pgvector  
-➡️ LLM reasoning with tools and memory  
-➡️ Structured incident response  
-
-Core stack:
-
-• **FastAPI** for async API backend  
-• **LangGraph** for agent orchestration  
-• **PostgreSQL + pgvector** for vector search  
-• **OpenAI models** for reasoning and embeddings  
-• **Prometheus + Grafana** for monitoring  
-• **Docker** for containerization  
-• **AWS ready deployment**
+API routes live under **`/api/v1`** (e.g. `/api/v1/chatbot/chat`). Health: **`GET /live`** (liveness), **`GET /health`** (readiness + DB).
 
 ---
 
-## 🤖 Key Features
+## Prerequisites
 
-### 🔎 Incident Investigation Agent
-
-• Upload logs or paste incident details  
-• Semantic search across runbooks and past incidents  
-• Root cause analysis suggestions  
-• Recommended debugging steps  
-• Conversation memory per user  
+- **Python 3.13+**, **[uv](https://docs.astral.sh/uv/)**
+- **Docker** (recommended for Postgres + full stack)
+- **OpenAI API key**
+- **PostgreSQL with pgvector** (Docker image `pgvector/pgvector` is used in Compose)
 
 ---
 
-### 🧠 Retrieval Augmented Generation Pipeline
+## Quick start (local API)
 
-This project uses a full RAG pipeline to ground responses in real engineering knowledge.
+1. Copy env template and fill secrets:
 
-• Log ingestion and chunking pipeline  
-• Document ingestion pipeline for runbooks  
-• Embedding generation using OpenAI models  
-• Vector similarity search with PostgreSQL + pgvector  
-• Context injection into LLM prompts for grounded reasoning
+   ```bash
+   cp .env.example .env.development
+   ```
 
----
+   Set at least **`OPENAI_API_KEY`**, **`JWT_SECRET_KEY`**, and **`POSTGRES_*`** so they match your database (see `app/core/config.py` for all options).
 
-### ⚙️ Production Backend
+2. Start Postgres (published on **`localhost:${POSTGRES_PORT:-5433}`** by default to avoid clashing with a local Postgres on 5432):
 
-• FastAPI async REST API  
-• JWT authentication and session management  
-• Rate limiting and input validation  
-• Structured logging with request context  
-• Streaming responses support  
+   ```bash
+   make docker-db
+   ```
 
----
+3. Start the API:
 
-### 📊 Observability & Evaluation
+   ```bash
+   make start
+   ```
 
-• Prometheus metrics + Grafana dashboards  
-• Langfuse LLM tracing  
-• Automated evaluation framework  
-• JSON reports with success metrics  
+   Or: `make docker-db` then `make dev`.
+
+4. Open **http://127.0.0.1:8000/docs**
 
 ---
 
-### ⚡ Performance & Reliability
+## Demo UI (Streamlit, no JWT)
 
-• Docker + Docker Compose setup  
-• Redis caching support  
-• Automatic retry logic for LLM calls  
-• Async database connection pooling  
+Requires **`DEMO_API_KEY`** in `.env.development` (Compose defaults match **`demo-local-review-only`**).
 
----
+**All-in Docker:**
 
-## 💡 Example Use Cases
-
-Example queries:
-
-• “Here are logs from the payment service. Why is checkout failing?”  
-• “We are seeing repeated 503 errors. What could be wrong?”  
-• “Summarize this incident and suggest next steps.”
-
-The agent retrieves relevant runbook sections and produces structured troubleshooting guidance.
-
----
-
-## 📂 Project Structure
-
+```bash
+make demo-up
+# http://localhost:8501 — uses X-Demo-API-Key; API at :8000
 ```
-app/
- ├── api/                # REST API endpoints (auth + chat)
- ├── core/langgraph/     # LangGraph agent workflow & tools
- ├── services/
- │     ├── database.py   # PostgreSQL + pgvector integration
- │     └── llm.py        # LLM + embedding service
- ├── prompts/            # System prompts & RAG instructions
 
-scripts/                 # Log + runbook ingestion pipeline (RAG indexing)
-evals/                   # Evaluation framework for agent accuracy
-prometheus/              # Metrics configuration
-grafana/                 # Monitoring dashboards
+**API on host + Streamlit:**
+
+```bash
+make dev          # terminal 1, after docker-db
+make demo-ui      # terminal 2 (uses optional demo extra: uv sync --extra demo)
 ```
 
 ---
 
-## 🚀 Getting Started
+## Full stack (API + DB + Redis + Prometheus + Grafana)
 
-### Prerequisites
+```bash
+make docker-compose-up ENV=development
+```
 
-• Python 3.13  
-• PostgreSQL  
-• Docker + Docker Compose  
-• OpenAI API Key  
+Requires **`.env.development`**. After changing Compose env, use **`docker compose up -d`** so variables apply.
 
 ---
 
-### 🔧 Local Setup
+## Log ingestion & retrieval (short reference)
 
-Clone the repo
+| Piece | Description |
+|-------|-------------|
+| **Chunking** | Windows of lines until `LOG_LINES_PER_CHUNK` or `LOG_CHUNK_MAX_CHARS` is hit (`app/services/log_ingestion.py`). |
+| **`search_logs`** | Embedding + pgvector similarity + optional `service` / `level` / time filters. Default **top-k** is small (see `LOG_SEARCH_DEFAULT_TOP_K` / `LOG_SEARCH_MAX_TOP_K`). |
+| **Chat body** | Optional **`focus_log_batch_id`** (UUID) to pin which upload to search. |
+| **Citations** | `POST /api/v1/chatbot/chat` returns **`citations`** when retrieval runs. |
 
-```
-git clone https://github.com/your-username/ai-incident-response-agent.git
-cd ai-incident-response-agent
-```
+**Stress ingest (large file):** see `scripts/stress_log_ingest.py` and README history in git for line counts.
 
-Install dependencies
-
-```
-uv sync
-```
-
-Create environment file
-
-```
-cp .env.example .env.development
-```
-
-Add required variables
-
-```
-OPENAI_API_KEY=your_key
-POSTGRES_HOST=localhost
-POSTGRES_DB=incident_agent
-SECRET_KEY=your_secret
-```
-
-Run locally
-
-```
-make dev
-```
-
-Swagger docs available at  
-http://localhost:8000/docs
+**Runbooks (`rag_chunk`):** CLI `scripts/ingest_rag_documents.py`; agent tool **`search_incident_knowledge`**.
 
 ---
 
-## 🐳 Run with Docker
+## Observability
 
-```
-make docker-build-env ENV=development
-make docker-run-env ENV=development
-```
+- **App `/metrics`:** HTTP (Starlette Prometheus), **`llm_latency_seconds`**, log-search **`cache_*`** / **`retrieval_latency_seconds`** when those paths run.
+- **Prometheus** scrapes the app and **cAdvisor** (containers).
+- **Grafana** ships provisioned dashboards under `grafana/dashboards/json/` (LLM latency, log search cache & retrieval).
 
-Monitoring dashboards
+**Note:** Metrics need **traffic** (your requests count). **`rate(...)`** in Prometheus needs counter movement over the window.
 
-Prometheus → http://localhost:9090  
-Grafana → http://localhost:3000  
+**Local-only:** If the API runs on the host but Prometheus runs in Docker, scrape targets must reach the process (e.g. run the **full Compose** stack so `app:8000` is on the same network).
 
 ---
 
-## 🧪 Evaluation
+## Makefile highlights
 
-Run automated evaluation
-
-```
-make eval-quick ENV=development
-```
-
-Reports generated in:
-
-```
-evals/reports/
-```
-
-Metrics include success rate and response quality.
+| Target | Action |
+|--------|--------|
+| `make install` / `uv sync` | Install dependencies |
+| `make docker-db` | Postgres (pgvector) only |
+| `make dev` / `make start` | API locally |
+| `make demo-up` | DB + Redis + app + Streamlit (Compose) |
+| `make demo-ui` | Streamlit only (API must be running) |
+| `make docker-compose-up ENV=development` | Full stack including monitoring |
+| `make monitoring-up` | Prometheus + Grafana only |
+| `make eval-rag` | Root-cause RAG eval (see `evals/rag_root_cause/METHODOLOGY.md`) |
 
 ---
 
-## 🔮 Future Improvements
+## Project layout
 
-• Cloud log ingestion integrations  
-• Slack and email alerting support  
-• Larger evaluation datasets  
-• Advanced multi-step agent workflows  
+```
+app/api/v1/          # REST: auth, chatbot, logs
+app/core/langgraph/  # Agent graph & tools (search_logs, search_incident_knowledge, web search)
+app/services/        # DB, LLM, log ingest, log search, Redis
+demo/streamlit_app.py
+prometheus/          # Prometheus scrape config
+grafana/             # Datasources + dashboard JSON
+scripts/             # Ingest, stress tests, benchmarks
+evals/               # Evaluation harness & reports
+```
 
 ---
 
-## 🙌 Acknowledgements
+## Troubleshooting (short)
 
-Built using a production FastAPI + LangGraph template and extended with a real-world incident response use case.
+| Issue | What to try |
+|-------|-------------|
+| DB connection errors | Ensure **`make docker-db`** ran and **`POSTGRES_HOST` / `POSTGRES_PORT`** in `.env.development` match Docker (often port **5433** on the host). |
+| `database "…" does not exist` | Run **`make docker-db`** again so the DB is created; check volume/env if you changed `POSTGRES_DB`. |
+| Grafana login fails | Admin password is stored in the **Docker volume** from first boot. Reset: `docker compose exec grafana grafana-cli admin reset-admin-password admin` (or wipe the `grafana-storage` volume—see Compose file). |
+| Prometheus queries empty | Generate API traffic; **`rate()`** needs counters to increase. Custom metrics (`llm_*`, cache) appear after those code paths run. |
+| OpenAPI path | This app serves the schema at **`/api/v1/openapi.json`**, not `/openapi.json`. |
+
+---
+
+## Security
+
+- Do not commit **`.env.development`** or real keys.
+- Treat **`DEMO_API_KEY`** like a password on any shared deployment.
+
+---
+
+## Roadmap & evaluation
+
+Phased roadmap (RAG, caching, demo UX, deploy hardening, structured evals) lives in project history; for **root-cause RAG methodology**, see **`evals/rag_root_cause/METHODOLOGY.md`**.
+
+---
+
+## Acknowledgements
+
+Built from a FastAPI + LangGraph template, extended for incident-style log debugging and retrieval-grounded answers.

@@ -36,6 +36,16 @@ def sanitize_string(value: str) -> str:
     return value
 
 
+def sanitize_plaintext_secret(value: str) -> str:
+    """Normalize secrets (passwords, API keys) for verification: no HTML escaping.
+
+    HTML-escaping passwords breaks hash comparison when the password contains &, <, etc.
+    """
+    if not isinstance(value, str):
+        value = str(value)
+    return value.replace("\0", "")
+
+
 def sanitize_email(email: str) -> str:
     """Sanitize an email address.
 
@@ -45,10 +55,9 @@ def sanitize_email(email: str) -> str:
     Returns:
         str: The sanitized email address
     """
-    # Basic sanitization
-    email = sanitize_string(email)
-
-    # Ensure email format (simple check)
+    if not isinstance(email, str):
+        email = str(email)
+    email = email.strip().replace("\0", "")
     if not re.match(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$", email):
         raise ValueError("Invalid email format")
 

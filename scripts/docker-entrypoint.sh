@@ -59,11 +59,14 @@ for var in "${required_vars[@]}"; do
 done
 
 if [[ ${#missing_vars[@]} -gt 0 ]]; then
-    echo "ERROR: The following required environment variables are missing:"
+    echo "ERROR: The following required environment variables are missing or empty:"
     for var in "${missing_vars[@]}"; do
         echo "  - $var"
     done
-    echo "Please provide these variables through environment or .env files."
+    echo ""
+    echo "Fix: edit .env.development and set OPENAI_API_KEY=sk-... (must be non-empty)."
+    echo "     Same for JWT_SECRET_KEY. Empty values after = count as missing."
+    echo "     OpenAI keys: https://platform.openai.com/api-keys"
     exit 1
 fi
 

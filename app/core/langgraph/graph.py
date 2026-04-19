@@ -1,15 +1,22 @@
 """This file contains the LangGraph Agent/workflow and interactions with the LLM."""
 
 import asyncio
+import inspect
+import json
+import re
 from typing import (
+    Any,
     AsyncGenerator,
+    List,
     Optional,
 )
+from uuid import UUID
 from urllib.parse import quote_plus
 
 from asgiref.sync import sync_to_async
 from langchain_core.messages import (
     BaseMessage,
+    HumanMessage,
     ToolMessage,
     convert_to_openai_messages,
 )
@@ -36,18 +43,127 @@ from app.core.config import (
 )
 from app.core.langgraph.tools import tools
 from app.core.logging import logger
-from app.core.metrics import llm_inference_duration_seconds
+from app.core.metrics import llm_latency_seconds
 from app.core.prompts import load_system_prompt
 from app.schemas import (
     GraphState,
     Message,
 )
+from app.schemas.chat import LogCitation
 from app.services.llm import llm_service
+from app.services.log_batch_scope import resolve_log_search_batch_ids
+from app.services.log_search import log_search_service
+from app.services.log_search_scope import (
+    reset_log_search_batch_ids,
+    set_log_search_batch_ids,
+)
 from app.utils import (
     dump_messages,
     prepare_messages,
     process_llm_response,
 )
+from app.utils.graph import content_blocks_to_plain_text
+
+# If the model skips search_logs, still populate API citations for incident-style questions (demo UX).
+_LOG_QUERY_FALLBACK = re.compile(
+    r"\b(503|502|504|500|error|errors|timeout|deploy|checkout|logs?\b|log lines|ingested|incident|"
+    r"production|evidence|database|payment|redis|gateway|outage|fail(?:ed|ure)?|unhealthy)\b",
+    re.I,
+)
+
+# One retrieval pass per user message (top chunks already returned in tool JSON).
+_MAX_SEARCH_LOGS_PER_USER_MESSAGE = 1
+
+
+async def _fallback_citations_from_user_query(user_text: str) -> List[LogCitation]:
+    """Run log vector search once when the agent did not call search_logs."""
+    out: List[LogCitation] = []
+    q = user_text.strip()[:3000]
+    if not q:
+        return out
+    try:
+        raw = await log_search_service.search_json(q, top_k=settings.LOG_SEARCH_DEFAULT_TOP_K)
+        data = json.loads(raw)
+    except Exception as e:
+        logger.warning("log_citation_fallback_failed", error=str(e))
+        return out
+    for c in data.get("citations") or []:
+        if not isinstance(c, dict):
+            continue
+        try:
+            out.append(LogCitation(**c))
+        except Exception:
+            logger.warning("log_citation_fallback_skip_malformed", exc_info=True)
+    return out
+
+
+def _messages_since_last_human(raw_messages: List[BaseMessage]) -> List[BaseMessage]:
+    """Checkpoint `messages` is the full thread; only the tail is this user turn."""
+    last = -1
+    for i, m in enumerate(raw_messages):
+        if isinstance(m, HumanMessage):
+            last = i
+    if last < 0:
+        return raw_messages
+    return raw_messages[last:]
+
+
+def _dedupe_log_citations(citations: List[LogCitation]) -> List[LogCitation]:
+    """Keep first occurrence per chunk_id (agent may call search_logs multiple times)."""
+    seen: set[int] = set()
+    out: List[LogCitation] = []
+    for c in citations:
+        if c.chunk_id in seen:
+            continue
+        seen.add(c.chunk_id)
+        out.append(c)
+    return out
+
+
+def extract_log_citations_from_messages(raw_messages: List[BaseMessage]) -> List[LogCitation]:
+    """Parse search_logs ToolMessage payloads into structured citations."""
+    out: List[LogCitation] = []
+    for m in raw_messages:
+        if not isinstance(m, ToolMessage):
+            continue
+        if (getattr(m, "name", None) or "") != "search_logs":
+            continue
+        content = m.content
+        if not isinstance(content, str):
+            content = str(content)
+        try:
+            data = json.loads(content)
+        except json.JSONDecodeError:
+            continue
+        for c in data.get("citations") or []:
+            if not isinstance(c, dict):
+                continue
+            try:
+                out.append(LogCitation(**c))
+            except Exception:
+                logger.warning("skip_malformed_citation", exc_info=True)
+    return out
+
+
+def _search_logs_tool_was_used(raw_messages: List[BaseMessage]) -> bool:
+    """True if the agent called search_logs this turn (even when it returned zero rows)."""
+    for m in raw_messages:
+        if isinstance(m, ToolMessage) and (getattr(m, "name", None) or "") == "search_logs":
+            return True
+    return False
+
+
+def _openai_content_to_text(content: Any) -> str:
+    """Turn LangChain / OpenAI message content into plain text for API responses."""
+    if content is None:
+        return ""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return content_blocks_to_plain_text(content)
+    if isinstance(content, dict):
+        return content_blocks_to_plain_text(content)
+    return str(content)
 
 
 class LangGraphAgent:
@@ -75,7 +191,7 @@ class LangGraphAgent:
     async def _long_term_memory(self) -> AsyncMemory:
         """Initialize the long term memory."""
         if self.memory is None:
-            self.memory = await AsyncMemory.from_config(
+            created = AsyncMemory.from_config(
                 config_dict={
                     "vector_store": {
                         "provider": "pgvector",
@@ -96,6 +212,7 @@ class LangGraphAgent:
                     # "custom_fact_extraction_prompt": load_custom_fact_extraction_prompt(),
                 }
             )
+            self.memory = await created if inspect.isawaitable(created) else created
         return self.memory
 
     async def _get_connection_pool(self) -> AsyncConnectionPool:
@@ -146,11 +263,23 @@ class LangGraphAgent:
         Returns:
             str: The relevant memory.
         """
+        if not settings.LONG_TERM_MEMORY_ENABLED:
+            return ""
         try:
             memory = await self._long_term_memory()
-            results = await memory.search(user_id=str(user_id), query=query)
-            print(results)
-            return "\n".join([f"* {result['memory']}" for result in results["results"]])
+            results = await asyncio.wait_for(
+                memory.search(user_id=str(user_id), query=query),
+                timeout=settings.LONG_TERM_MEMORY_RETRIEVE_TIMEOUT_SECONDS,
+            )
+            rows = results.get("results", []) if isinstance(results, dict) else []
+            return "\n".join(f"* {r.get('memory', r)}" for r in rows)
+        except asyncio.TimeoutError:
+            logger.warning(
+                "long_term_memory_retrieve_timeout",
+                user_id=user_id,
+                timeout_sec=settings.LONG_TERM_MEMORY_RETRIEVE_TIMEOUT_SECONDS,
+            )
+            return ""
         except Exception as e:
             logger.error("failed_to_get_relevant_memory", error=str(e), user_id=user_id, query=query)
             return ""
@@ -163,10 +292,17 @@ class LangGraphAgent:
             messages (list[dict]): The messages to update the long term memory with.
             metadata (dict): Optional metadata to include.
         """
+        if not settings.LONG_TERM_MEMORY_ENABLED:
+            return
         try:
             memory = await self._long_term_memory()
-            await memory.add(messages, user_id=str(user_id), metadata=metadata)
+            await asyncio.wait_for(
+                memory.add(messages, user_id=str(user_id), metadata=metadata),
+                timeout=max(45.0, settings.LONG_TERM_MEMORY_RETRIEVE_TIMEOUT_SECONDS * 4),
+            )
             logger.info("long_term_memory_updated_successfully", user_id=user_id)
+        except asyncio.TimeoutError:
+            logger.warning("long_term_memory_update_timeout", user_id=user_id)
         except Exception as e:
             logger.exception(
                 "failed_to_update_long_term_memory",
@@ -198,7 +334,7 @@ class LangGraphAgent:
 
         try:
             # Use LLM service with automatic retries and circular fallback
-            with llm_inference_duration_seconds.labels(model=model_name).time():
+            with llm_latency_seconds.labels(model=model_name).time():
                 response_message = await self.llm_service.call(dump_messages(messages))
 
             # Process response to handle structured content blocks
@@ -237,13 +373,41 @@ class LangGraphAgent:
         Returns:
             Command: Command object with updated messages and routing back to chat.
         """
+        turn_so_far = _messages_since_last_human(state.messages)
+        prior_search_logs = sum(
+            1
+            for m in turn_so_far
+            if isinstance(m, ToolMessage) and (getattr(m, "name", None) or "") == "search_logs"
+        )
+        search_logs_in_batch = 0
         outputs = []
         for tool_call in state.messages[-1].tool_calls:
-            tool_result = await self.tools_by_name[tool_call["name"]].ainvoke(tool_call["args"])
+            name = tool_call["name"]
+            if name == "search_logs" and prior_search_logs + search_logs_in_batch >= _MAX_SEARCH_LOGS_PER_USER_MESSAGE:
+                outputs.append(
+                    ToolMessage(
+                        content=json.dumps(
+                            {
+                                "citations": [],
+                                "context": (
+                                    f"Maximum {_MAX_SEARCH_LOGS_PER_USER_MESSAGE} search_logs calls per user "
+                                    "message. Answer using the results you already have."
+                                ),
+                                "error": "search_logs_limit",
+                            }
+                        ),
+                        name="search_logs",
+                        tool_call_id=tool_call["id"],
+                    )
+                )
+                continue
+            if name == "search_logs":
+                search_logs_in_batch += 1
+            tool_result = await self.tools_by_name[name].ainvoke(tool_call["args"])
             outputs.append(
                 ToolMessage(
                     content=tool_result,
-                    name=tool_call["name"],
+                    name=name,
                     tool_call_id=tool_call["id"],
                 )
             )
@@ -299,7 +463,8 @@ class LangGraphAgent:
         messages: list[Message],
         session_id: str,
         user_id: Optional[str] = None,
-    ) -> list[dict]:
+        focus_log_batch_id: Optional[UUID] = None,
+    ) -> tuple[list[Message], list[LogCitation]]:
         """Get a response from the LLM.
 
         Args:
@@ -308,7 +473,12 @@ class LangGraphAgent:
             user_id (Optional[str]): The user ID for Langfuse tracking.
 
         Returns:
-            list[dict]: The response from the LLM.
+            Tuple of **this-turn** messages for the API (latest user from the request + latest
+            assistant text) and log citations. Full thread stays in the checkpoint; we do not
+            re-send the entire history (avoids empty tool-only assistant turns and duplicate user lines).
+
+        Raises:
+            Exception: Re-raises after logging; callers must not receive None.
         """
         if self._graph is None:
             self._graph = await self.create_graph()
@@ -321,27 +491,71 @@ class LangGraphAgent:
                 "environment": settings.ENVIRONMENT.value,
                 "debug": settings.DEBUG,
             },
+            "recursion_limit": settings.LANGGRAPH_RECURSION_LIMIT,
         }
         relevant_memory = (
             await self._get_relevant_memory(user_id, messages[-1].content)
         ) or "No relevant memory found."
+        bids = (
+            resolve_log_search_batch_ids(int(user_id), focus_log_batch_id)
+            if user_id is not None
+            else []
+        )
+        scope_token = set_log_search_batch_ids(tuple(str(b) for b in bids))
         try:
             response = await self._graph.ainvoke(
                 input={"messages": dump_messages(messages), "long_term_memory": relevant_memory},
                 config=config,
             )
-            # Run memory update in background without blocking the response
+            raw_messages = response.get("messages")
+            if raw_messages is None:
+                logger.error("graph_ainvoke_missing_messages", session_id=session_id)
+                raise RuntimeError("Agent returned no messages")
+
+            processed = self.__process_messages(raw_messages)
+            turn_messages = _messages_since_last_human(raw_messages)
+            citations = _dedupe_log_citations(extract_log_citations_from_messages(turn_messages))
+            # Do not add unfiltered fallback citations when search_logs already ran: the model's
+            # answer reflects the filtered tool result; extra chunks would contradict "no evidence".
+            if (
+                not citations
+                and messages
+                and messages[-1].role == "user"
+                and _LOG_QUERY_FALLBACK.search(messages[-1].content or "")
+                and not _search_logs_tool_was_used(turn_messages)
+            ):
+                citations = await _fallback_citations_from_user_query(messages[-1].content or "")
+
+            # Expose one completion to clients: last user in this request + last assistant with text.
+            # (Graph state includes every past user turn; tool-only assistant turns have empty content.)
+            assistants = [m for m in processed if m.role == "assistant" and (m.content or "").strip()]
+            latest_a = assistants[-1] if assistants else None
+            if latest_a and messages and messages[-1].role == "user":
+                processed = [messages[-1], latest_a]
+            elif latest_a:
+                processed = [latest_a]
+            else:
+                processed = []
+
+            # Only update long-term memory after we successfully built the API response
             asyncio.create_task(
                 self._update_long_term_memory(
-                    user_id, convert_to_openai_messages(response["messages"]), config["metadata"]
+                    user_id, convert_to_openai_messages(raw_messages), config["metadata"]
                 )
             )
-            return self.__process_messages(response["messages"])
+            return processed, citations
         except Exception as e:
-            logger.error(f"Error getting response: {str(e)}")
+            logger.exception("Error getting response", error=str(e), session_id=session_id)
+            raise
+        finally:
+            reset_log_search_batch_ids(scope_token)
 
     async def get_stream_response(
-        self, messages: list[Message], session_id: str, user_id: Optional[str] = None
+        self,
+        messages: list[Message],
+        session_id: str,
+        user_id: Optional[str] = None,
+        focus_log_batch_id: Optional[UUID] = None,
     ) -> AsyncGenerator[str, None]:
         """Get a stream response from the LLM.
 
@@ -366,6 +580,7 @@ class LangGraphAgent:
                 "environment": settings.ENVIRONMENT.value,
                 "debug": settings.DEBUG,
             },
+            "recursion_limit": settings.LANGGRAPH_RECURSION_LIMIT,
         }
         if self._graph is None:
             self._graph = await self.create_graph()
@@ -374,30 +589,41 @@ class LangGraphAgent:
             await self._get_relevant_memory(user_id, messages[-1].content)
         ) or "No relevant memory found."
 
+        _bids = (
+            resolve_log_search_batch_ids(int(user_id), focus_log_batch_id)
+            if user_id is not None
+            else []
+        )
+        scope_token = set_log_search_batch_ids(tuple(str(b) for b in _bids))
         try:
-            async for token, _ in self._graph.astream(
-                {"messages": dump_messages(messages), "long_term_memory": relevant_memory},
-                config,
-                stream_mode="messages",
-            ):
-                try:
-                    yield token.content
-                except Exception as token_error:
-                    logger.error("Error processing token", error=str(token_error), session_id=session_id)
-                    # Continue with next token even if current one fails
-                    continue
+            try:
+                async for token, _ in self._graph.astream(
+                    {"messages": dump_messages(messages), "long_term_memory": relevant_memory},
+                    config,
+                    stream_mode="messages",
+                ):
+                    try:
+                        raw = getattr(token, "content", None)
+                        if raw:
+                            yield _openai_content_to_text(raw)
+                    except Exception as token_error:
+                        logger.error("Error processing token", error=str(token_error), session_id=session_id)
+                        # Continue with next token even if current one fails
+                        continue
 
-            # After streaming completes, get final state and update memory in background
-            state: StateSnapshot = await sync_to_async(self._graph.get_state)(config=config)
-            if state.values and "messages" in state.values:
-                asyncio.create_task(
-                    self._update_long_term_memory(
-                        user_id, convert_to_openai_messages(state.values["messages"]), config["metadata"]
+                # After streaming completes, get final state and update memory in background
+                state: StateSnapshot = await sync_to_async(self._graph.get_state)(config=config)
+                if state.values and "messages" in state.values:
+                    asyncio.create_task(
+                        self._update_long_term_memory(
+                            user_id, convert_to_openai_messages(state.values["messages"]), config["metadata"]
+                        )
                     )
-                )
-        except Exception as stream_error:
-            logger.error("Error in stream processing", error=str(stream_error), session_id=session_id)
-            raise stream_error
+            except Exception as stream_error:
+                logger.error("Error in stream processing", error=str(stream_error), session_id=session_id)
+                raise stream_error
+        finally:
+            reset_log_search_batch_ids(scope_token)
 
     async def get_chat_history(self, session_id: str) -> list[Message]:
         """Get the chat history for a given thread ID.
@@ -414,16 +640,28 @@ class LangGraphAgent:
         state: StateSnapshot = await sync_to_async(self._graph.get_state)(
             config={"configurable": {"thread_id": session_id}}
         )
-        return self.__process_messages(state.values["messages"]) if state.values else []
+        if not state.values:
+            return []
+        raw = state.values.get("messages")
+        if not raw:
+            return []
+        return self.__process_messages(raw)
 
     def __process_messages(self, messages: list[BaseMessage]) -> list[Message]:
         openai_style_messages = convert_to_openai_messages(messages)
-        # keep just assistant and user messages
-        return [
-            Message(role=message["role"], content=str(message["content"]))
-            for message in openai_style_messages
-            if message["role"] in ["assistant", "user"] and message["content"]
-        ]
+        out: list[Message] = []
+        for message in openai_style_messages:
+            role = message.get("role") if isinstance(message, dict) else None
+            if role not in ("assistant", "user"):
+                continue
+            text = _openai_content_to_text(message.get("content") if isinstance(message, dict) else None).strip()
+            if not text:
+                continue
+            try:
+                out.append(Message(role=role, content=text))
+            except Exception:
+                logger.warning("skip_invalid_chat_message", role=role, exc_info=True)
+        return out
 
     async def clear_chat_history(self, session_id: str) -> None:
         """Clear all chat history for a given thread ID.

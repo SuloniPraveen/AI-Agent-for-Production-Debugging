@@ -152,16 +152,61 @@ class Settings:
         self.DEFAULT_LLM_MODEL = os.getenv("DEFAULT_LLM_MODEL", "gpt-5-mini")
         self.DEFAULT_LLM_TEMPERATURE = float(os.getenv("DEFAULT_LLM_TEMPERATURE", "0.2"))
         self.MAX_TOKENS = int(os.getenv("MAX_TOKENS", "2000"))
+        # LangChain trim_messages budget for LLM *input* (thread + tool JSON). Separate from MAX_TOKENS (generation).
+        self.CHAT_HISTORY_TRIM_MAX_TOKENS = int(os.getenv("CHAT_HISTORY_TRIM_MAX_TOKENS", "28000"))
         self.MAX_LLM_CALL_RETRIES = int(os.getenv("MAX_LLM_CALL_RETRIES", "3"))
 
-        # Long term memory Configuration
+        # Long term memory Configuration (Mem0). Retrieve runs before every chat and can dominate
+        # latency or hang on DB/embeddings — disable for Phase 4 demo via LONG_TERM_MEMORY_ENABLED=false.
+        # Off by default: Mem0 retrieve + add adds OpenAI + pgvector work every chat and dominates latency.
+        self.LONG_TERM_MEMORY_ENABLED = os.getenv("LONG_TERM_MEMORY_ENABLED", "false").lower() in (
+            "1",
+            "true",
+            "yes",
+        )
+        self.LONG_TERM_MEMORY_RETRIEVE_TIMEOUT_SECONDS = float(
+            os.getenv("LONG_TERM_MEMORY_RETRIEVE_TIMEOUT_SECONDS", "12")
+        )
+        # LangGraph node steps (chat <-> tool_call). Default 16 caps long tool loops; typical path is 3 (chat→tools→chat).
+        self.LANGGRAPH_RECURSION_LIMIT = int(os.getenv("LANGGRAPH_RECURSION_LIMIT", "16"))
         self.LONG_TERM_MEMORY_MODEL = os.getenv("LONG_TERM_MEMORY_MODEL", "gpt-5-nano")
         self.LONG_TERM_MEMORY_EMBEDDER_MODEL = os.getenv("LONG_TERM_MEMORY_EMBEDDER_MODEL", "text-embedding-3-small")
         self.LONG_TERM_MEMORY_COLLECTION_NAME = os.getenv("LONG_TERM_MEMORY_COLLECTION_NAME", "longterm_memory")
+
+        # RAG (ingested logs / runbooks in rag_chunk)
+        self.RAG_EMBEDDING_MODEL = os.getenv("RAG_EMBEDDING_MODEL", "text-embedding-3-small")
+        self.RAG_EMBEDDING_DIMENSIONS = int(os.getenv("RAG_EMBEDDING_DIMENSIONS", "1536"))
+        self.RAG_TOP_K = int(os.getenv("RAG_TOP_K", "5"))
+
+        # Log ingestion / log_chunk (Phase 1)
+        self.LOG_EMBEDDING_MODEL = os.getenv("LOG_EMBEDDING_MODEL", self.RAG_EMBEDDING_MODEL)
+        self.LOG_EMBEDDING_DIMENSIONS = int(os.getenv("LOG_EMBEDDING_DIMENSIONS", "1536"))
+        # Chunk when a window reaches this many lines OR LOG_CHUNK_MAX_CHARS (whichever first). Smaller = more chunks/embeddings, finer citations.
+        self.LOG_LINES_PER_CHUNK = int(os.getenv("LOG_LINES_PER_CHUNK", "24"))
+        self.LOG_CHUNK_MAX_CHARS = int(os.getenv("LOG_CHUNK_MAX_CHARS", "8000"))
+        # Embedding API limit (~300k tokens/request); cap count and total chars per call.
+        self.LOG_INGEST_EMBED_BATCH = int(os.getenv("LOG_INGEST_EMBED_BATCH", "32"))
+        self.LOG_INGEST_EMBED_MAX_CHARS = int(os.getenv("LOG_INGEST_EMBED_MAX_CHARS", "400000"))
+        # Pause between embedding calls to reduce TPM bursts (429). Set 0 to disable.
+        self.LOG_INGEST_EMBED_PAUSE_SECONDS = float(os.getenv("LOG_INGEST_EMBED_PAUSE_SECONDS", "1.5"))
+
+        # Redis (log search cache, Phase 2). Empty URL disables caching.
+        self.REDIS_URL = os.getenv("REDIS_URL", "").strip()
+        self.LOG_SEARCH_CACHE_TTL_SECONDS = int(os.getenv("LOG_SEARCH_CACHE_TTL_SECONDS", "600"))
+        # Vector search over uploaded log chunks: default few best matches; cap avoids huge tool payloads.
+        self.LOG_SEARCH_DEFAULT_TOP_K = int(os.getenv("LOG_SEARCH_DEFAULT_TOP_K", "3"))
+        self.LOG_SEARCH_MAX_TOP_K = int(os.getenv("LOG_SEARCH_MAX_TOP_K", "5"))
+
         # JWT Configuration
         self.JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY", "")
         self.JWT_ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
         self.JWT_ACCESS_TOKEN_EXPIRE_DAYS = int(os.getenv("JWT_ACCESS_TOKEN_EXPIRE_DAYS", "30"))
+
+        # Demo UI (Phase 4): when set, X-Demo-API-Key (or Bearer matching this value) authenticates
+        # as a fixed demo user + session — no JWT for reviewers.
+        self.DEMO_API_KEY = os.getenv("DEMO_API_KEY", "").strip()
+        self.DEMO_USER_EMAIL = os.getenv("DEMO_USER_EMAIL", "demo@demo.local")
+        self.DEMO_SESSION_ID = os.getenv("DEMO_SESSION_ID", "a1b2c3d4-e5f6-4789-a012-3456789abcde")
 
         # Logging Configuration
         self.LOG_DIR = Path(os.getenv("LOG_DIR", "logs"))
@@ -190,6 +235,8 @@ class Settings:
             "login": ["20 per minute"],
             "root": ["10 per minute"],
             "health": ["20 per minute"],
+            "logs_upload": ["10 per hour"],
+            "logs_batch_status": ["120 per minute"],
         }
 
         # Update rate limit endpoints from environment variables
