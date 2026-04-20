@@ -1,5 +1,11 @@
 # AI Agent for Production Debugging
 
+[![Production Debugging Agent Demo](assets/Thumbnail.png)](https://drive.google.com/file/d/1EAx9p0hMC_7Sqg5-8aB63NnDFSjdp-QH/view?usp=sharing)
+
+[![Demo Video](https://img.shields.io/badge/Watch-Demo-blue?style=for-the-badge)](https://drive.google.com/file/d/1EAx9p0hMC_7Sqg5-8aB63NnDFSjdp-QH/view?usp=sharing)
+
+---
+
 A **FastAPI + LangGraph** service that helps debug production-style incidents: you **upload logs**, ask questions in **chat**, and the agent retrieves **relevant log chunks** (vector search), then answers with **evidence (chunk citations)** and **actionable remediation**—not just raw citations.
 
 **Stack:** FastAPI · LangGraph · PostgreSQL + **pgvector** · OpenAI (chat + embeddings) · optional **Redis** (log-search cache) · optional **Mem0** (long-term memory, off by default for latency) · Prometheus / Grafana · optional Streamlit demo.
